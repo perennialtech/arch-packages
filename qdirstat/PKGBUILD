@@ -1,0 +1,37 @@
+pkgname=qdirstat
+pkgver=2.0
+pkgrel=1
+pkgdesc='Qt-based directory statistics, from the original KDirStat author'
+arch=('x86_64')
+url='https://github.com/shundhammer/qdirstat'
+license=('GPL-2.0-only')
+depends=(
+    'gcc-libs'
+    'glibc'
+    'hicolor-icon-theme'
+    'qt6-5compat'
+    'qt6-base'
+    'zlib'
+)
+optdepends=(
+    'perl: support for bundled scripts'
+    'perl-uri: URI support for bundled scripts'
+)
+conflicts=('qdirstat-git')
+source=(
+    "${pkgname}-${pkgver}.tar.gz::https://github.com/shundhammer/qdirstat/archive/refs/tags/${pkgver}.tar.gz"
+)
+sha256sums=(
+    'a0b2ba91caf68ec4ee7705d5063bc542ac8aea4d421451103245c69d272bf19f'
+)
+
+build() {
+    cd "${pkgname}-${pkgver}"
+    qmake6
+    make
+}
+
+package() {
+    cd "${pkgname}-${pkgver}"
+    make INSTALL_ROOT="${pkgdir}" install
+}
