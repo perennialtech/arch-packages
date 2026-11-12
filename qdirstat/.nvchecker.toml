@@ -1,0 +1,5 @@
+[qdirstat]
+source = "git"
+git = "https://github.com/shundhammer/qdirstat.git"
+use_max_tag = true
+include_regex = '[0-9.]+'

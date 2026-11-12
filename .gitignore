@@ -1,0 +1,6 @@
+# ./pkg builds outside the checkout; these catch a plain makepkg run.
+pkg/
+src/
+*.pkg.tar.*
+*.deb
+*.tar.gz

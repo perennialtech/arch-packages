@@ -1,0 +1,73 @@
+#!/bin/bash
+# Set pkgver and the .deb checksum to the newest release in Anthropic's apt
+# repository. Both are read from the Packages index, whose hash must appear
+# in the part of InRelease signed by the key pinned in anthropic.asc, so the
+# .deb checksum never comes from hashing whatever a download returned.
+set -euo pipefail
+
+base=https://downloads.claude.ai/claude-desktop/apt/stable
+index=main/binary-amd64/Packages
+
+die() {
+    printf '%s\n' "$*" >&2
+    exit 1
+}
+
+tmp=$(mktemp -d)
+trap 'rm -rf -- "$tmp"' EXIT
+
+gpg --dearmor <anthropic.asc >"$tmp/anthropic.gpg"
+curl -fsS -o "$tmp/InRelease" "$base/dists/stable/InRelease"
+curl -fsS -o "$tmp/Packages" "$base/dists/stable/$index"
+
+# Only the signed text is used from here on.
+gpgv --keyring "$tmp/anthropic.gpg" --output "$tmp/Release" "$tmp/InRelease"
+
+sum=$(sha256sum <"$tmp/Packages")
+sum=${sum%% *}
+awk -v sum="$sum" -v file="$index" '
+    /^[^ ]/ { sha256 = $0 == "SHA256:" }
+    sha256 && $1 == sum && $3 == file { found = 1 }
+    END { exit !found }
+' "$tmp/Release" || die "Packages does not match the signed InRelease"
+
+latest='' debsum=''
+while read -r version versum; do
+    if [[ -z $latest ]] || (( $(vercmp "$version" "$latest") > 0 )); then
+        latest=$version debsum=$versum
+    fi
+done < <(awk '
+    function emit() {
+        if (pkg == "claude-desktop" && arch == "amd64") print ver, sha
+        pkg = arch = ver = sha = ""
+    }
+    /^Package:/ { pkg = $2 }
+    /^Architecture:/ { arch = $2 }
+    /^Version:/ { ver = $2 }
+    /^SHA256:/ { sha = $2 }
+    /^$/ { emit() }
+    END { emit() }
+' "$tmp/Packages")
+
+[[ -n $latest ]] || die "No amd64 claude-desktop in Packages"
+[[ $latest =~ ^[[:alnum:]._+~]+$ ]] || die "Debian version $latest is not a valid pkgver"
+[[ $debsum =~ ^[0-9a-f]{64}$ ]] || die "Bad SHA256 for $latest: $debsum"
+
+read -r current cursum < <(
+    # shellcheck source-path=SCRIPTDIR source=PKGBUILD
+    source ./PKGBUILD
+    for i in "${!source[@]}"; do
+        [[ ${source[i]} == *.deb ]] && printf '%s %s\n' "$pkgver" "${sha256sums[i]}"
+    done
+)
+
+if [[ $current == "$latest" ]]; then
+    [[ $cursum == "$debsum" ]] ||
+        die "Upstream changed the .deb for $latest without a new version; re-audit"
+    echo "claude-desktop is up to date ($latest)"
+    exit
+fi
+
+sed -i -e "s/^pkgver=.*/pkgver=$latest/" -e 's/^pkgrel=.*/pkgrel=1/' \
+    -e "s/'$cursum'/'$debsum'/" PKGBUILD
+echo "claude-desktop: $current -> $latest"

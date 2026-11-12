@@ -1,0 +1,103 @@
+#!/bin/bash
+# Build the packages in this repository and publish them to the local
+# [perennial] pacman repository. Run ./pkg help for usage.
+set -euo pipefail
+
+repo=/srv/pacman/perennial/x86_64
+db=$repo/perennial.db.tar.zst
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+pkgdirs=()
+
+# Keep downloads, build trees and built packages out of the checkout.
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/arch-packages
+export SRCDEST=$cache/sources BUILDDIR=$cache/build PKGDEST=$cache/packages
+
+usage() {
+    cat <<EOF
+Usage: ./pkg <command> [package...]
+
+Commands:
+  outdated [package...]  Show packages with a newer upstream version
+                         (all packages if none are given).
+  bump <package...>      Set pkgver to upstream's latest, reset pkgrel to 1
+                         and update checksums. Runs <package>/update if it
+                         exists, otherwise pkgctl version upgrade.
+  build <package...>     Build with makepkg, removing makedepends afterwards.
+  publish <package...>   Copy built packages into the repository and add
+                         them to its database, replacing older versions.
+  help                   Show this help.
+
+Packages are built into $PKGDEST
+and published to $repo.
+EOF
+}
+
+die() {
+    printf '%s\n' "$*" >&2
+    exit 1
+}
+
+# Set pkgdirs to the directory of each named package, or fail.
+resolve() {
+    (( $# )) || die "No package given. Run ./pkg help for usage."
+    local name
+    pkgdirs=()
+    for name; do
+        name=${name%/}
+        [[ -f $root/$name/PKGBUILD ]] || die "No such package: $name"
+        pkgdirs+=("$root/$name")
+    done
+}
+
+cmd_outdated() {
+    if (( $# )); then
+        resolve "$@"
+    else
+        pkgdirs=("$root"/*/.nvchecker.toml)
+        pkgdirs=("${pkgdirs[@]%/.nvchecker.toml}")
+    fi
+    pkgctl version check "${pkgdirs[@]}"
+}
+
+cmd_bump() {
+    local dir
+    resolve "$@"
+    for dir in "${pkgdirs[@]}"; do
+        if [[ -x $dir/update ]]; then
+            (cd "$dir" && ./update)
+        else
+            (cd "$dir" && pkgctl version upgrade)
+        fi
+    done
+}
+
+cmd_build() {
+    local dir
+    resolve "$@"
+    mkdir -p "$SRCDEST" "$BUILDDIR" "$PKGDEST"
+    for dir in "${pkgdirs[@]}"; do
+        (cd "$dir" && makepkg --syncdeps --rmdeps --cleanbuild)
+    done
+}
+
+cmd_publish() {
+    local dir file
+    local -a files built=() added=()
+    resolve "$@"
+    for dir in "${pkgdirs[@]}"; do
+        mapfile -t files < <(cd "$dir" && makepkg --packagelist)
+        for file in "${files[@]}"; do
+            [[ -f $file ]] || die "Not built yet: ${file##*/} (run ./pkg build ${dir##*/})"
+            built+=("$file")
+            added+=("$repo/${file##*/}")
+        done
+    done
+    cp -- "${built[@]}" "$repo/"
+    repo-add --remove "$db" "${added[@]}"
+}
+
+case ${1:-help} in
+    outdated | bump | build | publish) cmd_"$1" "${@:2}" ;;
+    help | -h | --help) usage ;;
+    *) usage >&2; exit 1 ;;
+esac
