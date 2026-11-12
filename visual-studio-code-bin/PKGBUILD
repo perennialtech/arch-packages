@@ -1,0 +1,66 @@
+# Repackages Microsoft's official Debian package of Visual Studio Code.
+#
+# Ported from the AUR visual-studio-code-bin package (maintainer
+# D. Can Celasun <can@dcc.im>).
+
+pkgname=visual-studio-code-bin
+pkgver=1.146.0
+pkgrel=1
+pkgdesc='Visual Studio Code: editor for building and debugging modern web and cloud applications (official binary)'
+arch=('x86_64')
+url='https://code.visualstudio.com/'
+license=('LicenseRef-Proprietary')
+provides=('code' 'vscode')
+conflicts=('code')
+# lsof splits terminals (microsoft/vscode#62991); xdg-utils opens links.
+depends=(
+    'alsa-lib'
+    'gcc-libs'
+    'glibc'
+    'gnupg'
+    'gtk3'
+    'libnotify'
+    'libsecret'
+    'libxkbfile'
+    'libxss'
+    'lsof'
+    'nss'
+    'shared-mime-info'
+    'xdg-utils'
+)
+optdepends=(
+    'bubblewrap: agent host sandboxing'
+    'glib2: move to trash'
+    'icu69: Live Share'
+    'libdbusmenu-glib: KDE global menu'
+    'org.freedesktop.secrets: Settings Sync'
+    'socat: agent host sandboxing'
+)
+# Stripping breaks upstream's extension signature verification
+# (microsoft/vscode#223455).
+options=('!strip' '!debug')
+source=(
+    "${pkgname}.sh"
+    "code_${pkgver}_amd64.deb::https://update.code.visualstudio.com/${pkgver}/linux-deb-x64/stable"
+)
+sha256sums=(
+    'bd0d9edf69283ebdf4e73e0a7b168d2fcf50acbd01f63674cad93ed4fe42fdad'
+    'f83565f7f11a60b256807fe2216da8405f9728f193754959695242eecd148992'
+)
+
+package() {
+    # makepkg unpacks the .deb (an ar archive); data.tar.xz is the payload.
+    bsdtar -xf data.tar.xz -C "${pkgdir}"
+
+    # The launcher reads ~/.config/code-flags.conf.
+    install -Dm755 "${pkgname}.sh" "${pkgdir}/usr/bin/code"
+    sed -i 's/^\(Exec=\)[^ ]*/\1code/' "${pkgdir}"/usr/share/applications/*.desktop
+
+    # Chromium's setuid sandbox helper is only needed where unprivileged
+    # user namespaces are disabled (e.g. linux-hardened).
+    chmod u-s "${pkgdir}/usr/share/code/chrome-sandbox"
+
+    install -d "${pkgdir}/usr/share/licenses/${pkgname}"
+    ln -s /usr/share/code/resources/app/LICENSE.rtf \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE.rtf"
+}
