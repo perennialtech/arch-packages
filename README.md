@@ -5,6 +5,14 @@ repository named `[perennial]`.
 
 ## Setup
 
+Clone the repository and change into it, since `./pkg` runs from the
+checkout:
+
+```bash
+git clone https://github.com/perennialtech/arch-packages.git
+cd arch-packages
+```
+
 Install the tools `./pkg` uses:
 
 ```bash
