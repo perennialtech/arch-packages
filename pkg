@@ -12,6 +12,11 @@ pkgdirs=()
 cache=${XDG_CACHE_HOME:-$HOME/.cache}/arch-packages
 export SRCDEST=$cache/sources BUILDDIR=$cache/build PKGDEST=$cache/packages
 
+# Build with every core. Arch's stock makepkg.conf leaves MAKEFLAGS unset,
+# so make runs one job at a time; a MAKEFLAGS set in the environment or in
+# makepkg.conf still wins.
+export MAKEFLAGS=${MAKEFLAGS:---jobs=$(nproc)}
+
 usage() {
     cat <<EOF
 Usage: ./pkg <command> [package...]
