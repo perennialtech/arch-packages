@@ -1,0 +1,128 @@
+# Repackages Anthropic's official Debian package. Only the .deb's file
+# payload is used; its maintainer scripts do Debian-specific work (apt
+# repository registration, an AppArmor userns profile for Ubuntu), and the
+# parts that matter on Arch are reproduced in package().
+#
+# Ported from the AUR claude-desktop package (maintainer Kevin
+# <developer@kev314.dev>), with the .deb checksum checked against
+# Anthropic's signed apt index.
+
+pkgname=claude-desktop
+pkgver=5.1231.2
+pkgrel=1
+pkgdesc='Official Claude desktop app from Anthropic: Chat, Cowork, and Claude Code'
+arch=('x86_64')
+url='https://claude.com/download'
+license=('LicenseRef-Proprietary')
+# The .deb's Depends translated to Arch names, plus libraries the shipped
+# binaries link directly. Some are only dlopen()ed, spawned or reached over
+# D-Bus, so namcap can't see them. alsa-lib is a Recommends upstream but
+# Chromium needs it for audio. The QEMU stack, bubblewrap, socat and
+# virtiofsd run Cowork's VM sandbox; upstream recommends them and apt
+# installs recommends by default.
+depends=(
+    'alsa-lib'
+    'at-spi2-core'
+    'bubblewrap'
+    'cairo'
+    'dbus'
+    'edk2-ovmf'
+    'expat'
+    'gcc-libs'
+    'glib2'
+    'glibc'
+    'gtk3'
+    'hicolor-icon-theme'
+    'libcap-ng'
+    'libcups'
+    'libdrm'
+    'libnotify'
+    'libpipewire'
+    'libseccomp'
+    'libsecret'
+    'libx11'
+    'libxcb'
+    'libxcomposite'
+    'libxdamage'
+    'libxext'
+    'libxfixes'
+    'libxkbcommon'
+    'libxrandr'
+    'libxtst'
+    'mesa'
+    'nspr'
+    'nss'
+    'pango'
+    'qemu-system-x86'
+    'socat'
+    'systemd-libs'
+    'util-linux-libs'
+    'virtiofsd'
+    'xdg-desktop-portal'
+    'xdg-utils'
+)
+optdepends=(
+    'gjs: GNOME Shell search provider'
+    'gnome-keyring: credential storage via Secret Service (GNOME)'
+    'kwallet: credential storage (KDE Plasma)'
+    'libayatana-appindicator: system tray icon'
+    'openssh: system SSH client for remote sessions'
+    'xdg-desktop-portal-gtk: portal backend for GTK desktops'
+    'xdg-desktop-portal-kde: portal backend for KDE Plasma'
+)
+# Stripping prebuilt Electron binaries can corrupt embedded resources and
+# saves nothing; there is nothing to build a -debug package from.
+options=('!strip' '!debug')
+source=(
+    "${pkgname}.sh"
+    "https://downloads.claude.ai/claude-desktop/apt/stable/pool/main/c/${pkgname}/${pkgname}_${pkgver}_amd64.deb"
+)
+sha256sums=(
+    '2b50c019e70b263750255c446bab8db6ab1e50c7396d37ef6547cf118131da65'
+    'eb4d16c9aff0a696366d88728f74fa55136be7cfde3c1fe35af4062b45955b6f'
+)
+
+package() {
+    # makepkg unpacks the .deb (an ar archive); data.tar.xz is the payload.
+    tar -xf data.tar.xz -C "${pkgdir}"
+
+    local app="${pkgdir}/usr/lib/${pkgname}"
+
+    # Upstream's /usr/bin/claude-desktop is a bare symlink to Electron, which
+    # runs under XWayland on Wayland compositors (blurry when scaled). The
+    # launcher selects the Wayland backend and reads
+    # ~/.config/claude-desktop-flags.conf.
+    rm "${pkgdir}/usr/bin/${pkgname}"
+    install -Dm755 "${pkgname}.sh" "${pkgdir}/usr/bin/${pkgname}"
+
+    # Chromium's setuid sandbox helper, used only where unprivileged user
+    # namespaces are disabled (e.g. linux-hardened). The tarball already
+    # carries this mode; setting it states that setuid is intended.
+    chmod 4755 "${app}/chrome-sandbox"
+
+    # Debian's linter overrides have no consumer on Arch.
+    rm -r "${pkgdir}/usr/share/lintian"
+
+    # Upstream's postinst copies these into place. shared-mime-info's pacman
+    # hook rebuilds the MIME database, and the search provider's D-Bus
+    # service runs searchProvider.js with gjs.
+    install -Dm644 "${app}/resources/linux-mime/com.anthropic.Claude.xml" \
+        -t "${pkgdir}/usr/share/mime/packages"
+    install -Dm644 "${app}/resources/gnome-search-provider/com.anthropic.Claude.search-provider.ini" \
+        -t "${pkgdir}/usr/share/gnome-shell/search-providers"
+    install -Dm644 "${app}/resources/gnome-search-provider/com.anthropic.Claude.SearchProvider.service" \
+        -t "${pkgdir}/usr/share/dbus-1/services"
+
+    # Cowork hardcodes Debian paths for its VM stack. It looks for virtiofsd
+    # in /usr/libexec and /usr/bin (Arch installs it in /usr/lib), and for
+    # firmware at /usr/share/OVMF/OVMF_CODE_4M.fd, deriving the VARS path by
+    # replacing CODE with VARS. /usr/share/OVMF is edk2-ovmf's compat
+    # symlink to /usr/share/edk2, so the Debian names go there.
+    ln -s ../lib/virtiofsd "${pkgdir}/usr/bin/virtiofsd"
+    install -d "${pkgdir}/usr/share/edk2"
+    ln -s x64/OVMF_CODE.4m.fd "${pkgdir}/usr/share/edk2/OVMF_CODE_4M.fd"
+    ln -s x64/OVMF_VARS.4m.fd "${pkgdir}/usr/share/edk2/OVMF_VARS_4M.fd"
+
+    install -Dm644 "${pkgdir}/usr/share/doc/${pkgname}/copyright" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}
