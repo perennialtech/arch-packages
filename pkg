@@ -28,6 +28,8 @@ Commands:
                          and update checksums. Runs <package>/update if it
                          exists, otherwise pkgctl version upgrade.
   build <package...>     Build with makepkg, removing makedepends afterwards.
+                         If dependencies need installing, upgrades the
+                         system with pacman -Syu first.
   publish <package...>   Copy built packages into the repository and add
                          them to its database, replacing older versions.
   help                   Show this help.
@@ -77,12 +79,32 @@ cmd_bump() {
 }
 
 cmd_build() {
-    local dir
+    local dir upgraded=
+    local -a missing
     resolve "$@"
     mkdir -p "$SRCDEST" "$BUILDDIR" "$PKGDEST"
     for dir in "${pkgdirs[@]}"; do
+        mapfile -t missing < <(cd "$dir" && missing_deps)
+        # makepkg --syncdeps installs with plain pacman -S. On a system
+        # that's behind its sync databases that's a partial upgrade, which
+        # breaks installed packages on soname bumps, so upgrade first.
+        if (( ${#missing[@]} )) && [[ -z $upgraded ]]; then
+            printf '==> %s needs packages that are not installed:\n' "${dir##*/}"
+            printf '      %s\n' "${missing[@]}"
+            printf '==> Upgrading the system before installing them.\n'
+            sudo pacman -Syu
+            upgraded=1
+        fi
         (cd "$dir" && makepkg --syncdeps --rmdeps --cleanbuild)
     done
+}
+
+# Print the dependencies of the PKGBUILD in the current directory that
+# aren't installed.
+missing_deps() {
+    makepkg --printsrcinfo |
+        sed -nE 's/^\t(make|check)?depends(_x86_64)? = //p' |
+        xargs -r pacman -T || true
 }
 
 cmd_publish() {
