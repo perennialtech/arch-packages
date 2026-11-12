@@ -97,7 +97,9 @@ cmd_publish() {
             added+=("$repo/${file##*/}")
         done
     done
-    cp -- "${built[@]}" "$repo/"
+    # Unlink same-named files first instead of overwriting them in place:
+    # owning $repo is enough to replace a file, even one left owned by root.
+    cp --remove-destination -- "${built[@]}" "$repo/"
     repo-add --remove "$db" "${added[@]}"
 }
 
