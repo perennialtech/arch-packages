@@ -2,6 +2,3 @@
 /src/
 /*.pkg.tar.*
 /*.deb
-/InRelease
-/Packages
-/anthropic.gpg

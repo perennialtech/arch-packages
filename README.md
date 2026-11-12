@@ -65,18 +65,12 @@ updpkgsums
 makepkg --syncdeps --cleanbuild
 ```
 
-For `claude-desktop`, check the new `.deb` checksum against Anthropic's signed apt index before republishing. `anthropic.asc` is the pinned signing key (fingerprint `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`). The commands print the expected SHA-256 of the `.deb` for `pkgver` only if the signature and index checks pass, and it must match what `updpkgsums` wrote:
+For `claude-desktop`, run `./update` in its directory instead of `updpkgsums`. It sets `pkgver`, resets `pkgrel=1` and writes the `.deb` checksum from Anthropic's apt index, after verifying the index against the signing key pinned in `anthropic.asc` (fingerprint `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`):
 
 ```bash
 cd claude-desktop
-base=https://downloads.claude.ai/claude-desktop/apt/stable
-pkgver=$(source PKGBUILD && echo "$pkgver")
-curl -fsSO "$base/dists/stable/InRelease"
-curl -fsSO "$base/dists/stable/main/binary-amd64/Packages"
-gpg --dearmor < anthropic.asc > anthropic.gpg
-gpgv --keyring ./anthropic.gpg InRelease &&
-grep -q " $(sha256sum < Packages | cut -d' ' -f1) .*main/binary-amd64/Packages$" InRelease &&
-awk -v v="$pkgver" '$1 == "Version:" { m = $2 == v } m && $1 == "SHA256:" { print $2 }' Packages
+./update
+makepkg --syncdeps --cleanbuild
 ```
 
 Only recipes belong in Git. Build artifacts, downloaded sources, `src/`, and `pkg/` should remain ignored.
