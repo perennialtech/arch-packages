@@ -1,47 +1,23 @@
 # arch-packages
 
-Personal Arch Linux `PKGBUILD` recipes and local binary packages.
+Personal Arch Linux `PKGBUILD` recipes, published to a local pacman
+repository named `[perennial]`.
 
-## Build a package
+## Setup
+
+Install the tools `./pkg` uses:
 
 ```bash
-cd qdirstat
-makepkg --syncdeps --cleanbuild
+sudo pacman -S --needed base-devel devtools nvchecker pacman-contrib
 ```
 
-## Publish to the local repository
+Create the repository directory, owned by you so publishing needs no sudo:
 
-```sh
-publish() {
-    local repo=/srv/pacman/perennial/x86_64
-    local package destination
-    local -a packages installed
-
-    packages=("${(@f)$(makepkg --packagelist)}")
-
-    if (( ${#packages[@]} == 0 )); then
-        print -u2 "No package files reported by makepkg"
-        return 1
-    fi
-
-    for package in "${packages[@]}"; do
-        if [[ ! -f "$package" ]]; then
-            print -u2 "Package file does not exist: $package"
-            return 1
-        fi
-
-        destination="$repo/${package:t}"
-        sudo install -Dm644 -- "$package" "$destination" || return 1
-        installed+=("$destination")
-    done
-
-    sudo repo-add -R "$repo/perennial.db.tar.zst" "${installed[@]}"
-}
-
-publish
+```bash
+sudo install -d -o "$USER" -g "$USER" /srv/pacman/perennial/x86_64
 ```
 
-Configure `/etc/pacman.conf` once:
+Add the repository to `/etc/pacman.conf`:
 
 ```ini
 [perennial]
@@ -49,28 +25,22 @@ SigLevel = Optional TrustAll
 Server = file:///srv/pacman/perennial/$arch
 ```
 
-Refresh and install through `yay`:
+## Usage
+
+Run `./pkg help` for all commands. Updating a package and installing it:
 
 ```bash
-yay -Syu perennial/qdirstat
+./pkg outdated
+./pkg bump claude-desktop
+./pkg build claude-desktop
+./pkg publish claude-desktop
+sudo pacman -Syu
 ```
 
-## Update a package
+For packaging-only changes, increment `pkgrel` by hand instead of running
+`bump`.
 
-Change `pkgver` and reset `pkgrel=1`, or increment `pkgrel` for packaging-only changes. Update checksums and republish:
-
-```bash
-cd qdirstat
-updpkgsums
-makepkg --syncdeps --cleanbuild
-```
-
-For `claude-desktop`, run `./update` in its directory instead of `updpkgsums`. It sets `pkgver`, resets `pkgrel=1` and writes the `.deb` checksum from Anthropic's apt index, after verifying the index against the signing key pinned in `anthropic.asc` (fingerprint `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`):
-
-```bash
-cd claude-desktop
-./update
-makepkg --syncdeps --cleanbuild
-```
-
-Only recipes belong in Git. Build artifacts, downloaded sources, `src/`, and `pkg/` should remain ignored.
+`claude-desktop` takes its version and `.deb` checksum from Anthropic's apt
+index, which `claude-desktop/update` verifies against the signing key pinned
+in `claude-desktop/anthropic.asc` (fingerprint
+`31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE`).
