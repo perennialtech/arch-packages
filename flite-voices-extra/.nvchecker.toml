@@ -1,0 +1,4 @@
+[flite-voices-extra]
+source = "archpkg"
+archpkg = "flite"
+strip_release = true
