@@ -1,0 +1,8 @@
+[icu74]
+source = "github"
+github = "unicode-org/icu"
+use_max_tag = true
+prefix = "release-"
+include_regex = 'release-74-[0-9]+'
+from_pattern = "-"
+to_pattern = "."
