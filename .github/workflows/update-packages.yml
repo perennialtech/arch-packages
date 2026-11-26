@@ -1,0 +1,77 @@
+name: Update packages
+
+on:
+  schedule:
+    # Run every 6 hours at :17 past the hour to avoid top-of-hour queue spikes.
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Single package to check (leave empty to check all)"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: update-packages
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    timeout-minutes: 30
+    steps:
+      - name: Install Arch packaging tools
+        run: |
+          pacman -Syu --noconfirm --needed \
+            devtools \
+            git \
+            github-cli \
+            gnupg \
+            jq \
+            nvchecker \
+            pacman-contrib
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare unprivileged builder environment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          id -u builder >/dev/null 2>&1 || useradd -m -s /bin/bash builder
+          chown -R builder:builder "${GITHUB_WORKSPACE}"
+
+          install -d -m 700 -o builder -g builder /home/builder/.config/nvchecker
+          printf '[keys]\ngithub = "%s"\n' "${GH_TOKEN}" > /home/builder/.config/nvchecker/keyfile.toml
+          chown builder:builder /home/builder/.config/nvchecker/keyfile.toml
+          chmod 600 /home/builder/.config/nvchecker/keyfile.toml
+
+          runuser -u builder -- git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          runuser -u builder -- git config --global user.name "github-actions[bot]"
+          runuser -u builder -- git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Check for updates and open PRs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_PACKAGE: ${{ inputs.package }}
+        run: |
+          if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
+            touch "${GITHUB_STEP_SUMMARY}"
+            chown builder:builder "${GITHUB_STEP_SUMMARY}"
+          fi
+          runuser -u builder -- env \
+            HOME=/home/builder \
+            TERM=xterm-256color \
+            GH_TOKEN="${GH_TOKEN}" \
+            GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-}" \
+            TARGET_PACKAGE="${TARGET_PACKAGE}" \
+            bash "${GITHUB_WORKSPACE}/.github/scripts/update-packages.sh"

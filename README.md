@@ -48,6 +48,14 @@ sudo pacman -Syu
 For packaging-only changes, increment `pkgrel` by hand instead of running
 `bump`.
 
+## Automated updates
+
+The `Update packages` GitHub Actions workflow runs every 6 hours (and can be
+triggered manually via `workflow_dispatch`, optionally scoped to a single
+package). It checks every package with a `.nvchecker.toml`, runs `./pkg bump`
+for outdated packages, and opens or refreshes one pull request per package on
+`update/<package>` without auto-merging.
+
 `claude-desktop` takes its version and `.deb` checksum from Anthropic's apt
 index, which `claude-desktop/update` verifies against the signing key pinned
 in `claude-desktop/anthropic.asc` (fingerprint
