@@ -1,0 +1,209 @@
+name: Build and publish packages
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: "Packages to build (comma/space-separated, 'all', or empty to sync outdated)"
+        required: false
+        default: ""
+        type: string
+      force:
+        description: "Force rebuild of all packages when packages input is empty"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('build-pr-{0}', github.event.pull_request.number) || 'build-and-publish-master' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    timeout-minutes: 15
+    outputs:
+      packages: ${{ steps.detect.outputs.packages }}
+      has_packages: ${{ steps.detect.outputs.has_packages }}
+      removed_pkgnames: ${{ steps.detect.outputs.removed_pkgnames }}
+      has_removed: ${{ steps.detect.outputs.has_removed }}
+    steps:
+      - name: Install detection tools
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git \
+            python \
+            python-boto3
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect packages to build
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'origin/master' }}
+          INPUT_PACKAGES: ${{ inputs.packages }}
+          INPUT_FORCE: ${{ inputs.force }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          id -u builder >/dev/null 2>&1 || useradd -m -s /bin/bash builder
+          chown -R builder:builder "${GITHUB_WORKSPACE}"
+          runuser -u builder -- git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+          if [[ -n ${GITHUB_OUTPUT:-} ]]; then
+            touch "${GITHUB_OUTPUT}"
+            chown builder:builder "${GITHUB_OUTPUT}"
+          fi
+
+          args=()
+          if [[ $EVENT_NAME == pull_request ]]; then
+            args+=(--mode pr --base-ref "$BASE_REF" --head-ref HEAD)
+          elif [[ $EVENT_NAME == workflow_dispatch ]]; then
+            args+=(--mode dispatch --packages "$INPUT_PACKAGES")
+            if [[ $INPUT_FORCE == true ]]; then
+              args+=(--force)
+            fi
+          else
+            args+=(--mode push)
+          fi
+
+          runuser -u builder -- env \
+            HOME=/home/builder \
+            GITHUB_OUTPUT="${GITHUB_OUTPUT:-}" \
+            R2_ENDPOINT="${R2_ENDPOINT:-}" \
+            R2_BUCKET="${R2_BUCKET:-}" \
+            R2_ACCESS_KEY_ID="${R2_ACCESS_KEY_ID:-}" \
+            R2_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY:-}" \
+            python3 "${GITHUB_WORKSPACE}/.github/scripts/detect-packages.py" "${args[@]}"
+
+  build:
+    needs: detect
+    if: needs.detect.outputs.has_packages == 'true'
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.detect.outputs.packages) }}
+    steps:
+      - name: Install build prerequisites
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git \
+            gnupg \
+            sudo
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare unprivileged builder
+        run: |
+          id -u builder >/dev/null 2>&1 || useradd -m -s /bin/bash builder
+          printf 'builder ALL=(ALL) NOPASSWD: /usr/bin/pacman\n' > /etc/sudoers.d/builder-pacman
+          chmod 440 /etc/sudoers.d/builder-pacman
+          mkdir -p "${GITHUB_WORKSPACE}/_out"
+          chown -R builder:builder "${GITHUB_WORKSPACE}"
+          runuser -u builder -- git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+
+      - name: Build ${{ matrix.package }}
+        run: |
+          runuser -u builder -- env \
+            HOME=/home/builder \
+            bash "${GITHUB_WORKSPACE}/.github/scripts/build-package.sh" \
+              "${{ matrix.package }}" \
+              "${GITHUB_WORKSPACE}/_out"
+
+      - name: Upload built package artifacts
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.package }}
+          path: _out/*.pkg.tar.zst
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    needs:
+      - detect
+      - build
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      needs.detect.result == 'success' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped') &&
+      (needs.detect.outputs.has_packages == 'true' || needs.detect.outputs.has_removed == 'true')
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    timeout-minutes: 20
+    steps:
+      - name: Install publishing tools
+        run: |
+          pacman -Syu --noconfirm --needed \
+            gnupg \
+            jq \
+            python \
+            python-boto3
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download built package artifacts
+        if: needs.detect.outputs.has_packages == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
+          merge-multiple: true
+          path: _packages
+
+      - name: Sign and publish to R2
+        env:
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          REPO_GPG_PRIVATE_KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY }}
+          REMOVED_JSON: ${{ needs.detect.outputs.removed_pkgnames }}
+        run: |
+          set -euo pipefail
+          gnupg_dir=$(mktemp -d)
+          trap 'rm -rf -- "$gnupg_dir"' EXIT
+          chmod 700 "$gnupg_dir"
+          export GNUPGHOME="$gnupg_dir"
+          printf 'batch\npinentry-mode loopback\n' > "$gnupg_dir/gpg.conf"
+          printf 'allow-loopback-pinentry\n' > "$gnupg_dir/gpg-agent.conf"
+
+          printf '%s\n' "$REPO_GPG_PRIVATE_KEY" | gpg --batch --import
+
+          mapfile -t removed < <(jq -r '.[]' <<<"${REMOVED_JSON:-[]}")
+          args=(
+            --pubkey "${GITHUB_WORKSPACE}/keys/perennial.asc"
+          )
+          if [[ -d "${GITHUB_WORKSPACE}/_packages" ]]; then
+            args+=(--packages-dir "${GITHUB_WORKSPACE}/_packages")
+          fi
+          if (( ${#removed[@]} )); then
+            args+=(--remove "${removed[@]}")
+          fi
+
+          python3 "${GITHUB_WORKSPACE}/.github/scripts/publish-repo.py" "${args[@]}"
