@@ -11,6 +11,11 @@ on:
         required: false
         default: ""
         type: string
+      ignore_release_age:
+        description: "Bypass the 72h minimum release age and bump immediately"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: update-packages
@@ -63,6 +68,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TARGET_PACKAGE: ${{ inputs.package }}
+          MIN_RELEASE_AGE: 72h
+          IGNORE_RELEASE_AGE: ${{ inputs.ignore_release_age == true && '1' || '0' }}
         run: |
           if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
             touch "${GITHUB_STEP_SUMMARY}"
@@ -74,4 +81,6 @@ jobs:
             GH_TOKEN="${GH_TOKEN}" \
             GITHUB_STEP_SUMMARY="${GITHUB_STEP_SUMMARY:-}" \
             TARGET_PACKAGE="${TARGET_PACKAGE}" \
+            MIN_RELEASE_AGE="${MIN_RELEASE_AGE}" \
+            IGNORE_RELEASE_AGE="${IGNORE_RELEASE_AGE}" \
             bash "${GITHUB_WORKSPACE}/.github/scripts/update-packages.sh"
