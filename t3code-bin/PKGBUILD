@@ -4,7 +4,7 @@
 # matter on Arch are reproduced in package().
 
 pkgname=t3code-bin
-pkgver=0.1.11
+pkgver=0.1.12
 pkgrel=1
 pkgdesc='Desktop GUI for coding agents (Claude Code, Codex, and more)'
 arch=('x86_64')
@@ -60,10 +60,8 @@ source=(
     't3code.sh'
     "https://github.com/pingdotgg/t3code/releases/download/v${pkgver}/T3-Code-${pkgver}-amd64.deb"
 )
-sha256sums=(
-    '24dff1b246b9e3979d06e4a3ba8165b99c20ead2d3efb6838c3cabbac61881de'
-    'ccd43f67f95ff416ddf76f31a876b8cb0ca64e7df7343deb5b5941936384e1d0'
-)
+sha256sums=('24dff1b246b9e3979d06e4a3ba8165b99c20ead2d3efb6838c3cabbac61881de'
+            'c1ca3e656e12ba10377513e9bbe20a5112540cda9601e21c70b85ba7c53f1b29')
 
 package() {
     # makepkg unpacks the .deb (an ar archive); data.tar.xz is the payload.
