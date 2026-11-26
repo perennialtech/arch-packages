@@ -56,6 +56,14 @@ package). It checks every package with a `.nvchecker.toml`, runs `./pkg bump`
 for outdated packages, and opens or refreshes one pull request per package on
 `update/<package>` without auto-merging.
 
+To guard against newly published or quickly yanked releases, the workflow
+enforces a 72-hour minimum release age before bumping a package or opening/updating
+its pull request. First-seen timestamps per `(package, version)` are persisted in
+`release-age.json` on the orphan `ci/release-age` branch; if upstream publishes a
+newer version before 72 hours elapse, the timer resets for the new version.
+Manual `workflow_dispatch` runs can set `ignore_release_age` to bypass the wait
+for urgent updates.
+
 `claude-desktop` takes its version and `.deb` checksum from Anthropic's apt
 index, which `claude-desktop/update` verifies against the signing key pinned
 in `claude-desktop/anthropic.asc` (fingerprint
