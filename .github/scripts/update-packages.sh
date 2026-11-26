@@ -458,13 +458,10 @@ while IFS=$'\t' read -r pkg status local_ver upstream_ver out_of_date message; d
     pr_body+=$(cat <<EOF
 
 
-After merging, build and install locally:
+Merging this PR automatically builds, signs, and publishes \`${pkg}\` to \`[perennial]\`. Once the publish workflow finishes, update with:
 
 \`\`\`bash
-git pull
-./pkg build ${pkg}
-./pkg publish ${pkg}
-sudo pacman -Syu
+yay
 \`\`\`
 EOF
 )
